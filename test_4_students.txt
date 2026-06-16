@@ -1,0 +1,36 @@
+
+1
+Alice Johnson
+S001
+
+95.5
+88.0
+92.3
+
+1
+Bob Williams
+S002
+
+78.0
+82.5
+76.5
+
+1
+Charlie Davis
+S003
+
+91.0
+93.5
+89.0
+
+1
+Diana Martinez
+S004
+
+85.5
+87.0
+84.0
+
+2
+3
+ESC
