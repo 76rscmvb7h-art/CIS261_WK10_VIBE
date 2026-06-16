@@ -128,6 +128,9 @@ def input_float(prompt: str) -> float:
 			return None
 		try:
 			f = float(val)
+			if f > 100:
+				print("Score cannot exceed 100. Please enter a valid score.")
+				continue
 			return round(f, 2)
 		except ValueError:
 			print("Please enter a valid number (e.g., 87.5). Type ESC to cancel.")
@@ -141,6 +144,10 @@ def add_student(students: list):
 		return
 	sid = input("ID: ").strip()
 	if sid == '\x1b' or sid.upper() == 'ESC' or not sid:
+		print("Add cancelled.")
+		return
+	if any(s['id'].strip().lower() == sid.strip().lower() for s in students):
+		print(f"Duplicate ID detected: {sid}. Each student must have a unique ID.")
 		print("Add cancelled.")
 		return
 	# Ask for number of tests before entering test scores
@@ -213,18 +220,20 @@ def display_students(students: list):
 	if not students:
 		print("No student records available.")
 		return
-	# Build dynamic header based on NUM_TESTS
-	tests_headers = ' '.join(f"{'Test'+str(i):>7}" for i in range(1, NUM_TESTS + 1))
+	# Sort students by last name (alphabetically)
+	sorted_students = sorted(students, key=lambda s: s['name'].split()[-1].lower())
+	# Build dynamic header based on the maximum number of tests any student has
+	max_tests = max(len(s.get('tests', [])) for s in sorted_students)
+	if max_tests <= 0:
+		max_tests = NUM_TESTS
+	tests_headers = ' '.join(f"{'Test'+str(i):>7}" for i in range(1, max_tests + 1))
 	header = f"{'Name':<25} {'ID':<10} {tests_headers} {'Avg':>7} {'Grade':>6}"
 	print(header)
 	print('-' * len(header))
-	for s in students:
-		tests = s.get('tests') or [s.get(f'test{i+1}', 0.0) for i in range(NUM_TESTS)]
-		# Ensure we always display NUM_TESTS columns by padding with 0.00 if needed
-		while len(tests) < NUM_TESTS:
+	for s in sorted_students:
+		tests = s.get('tests', [])[:max_tests]
+		while len(tests) < max_tests:
 			tests.append(0.0)
-		# Truncate to NUM_TESTS if student has more (shouldn't happen, but be safe)
-		tests = tests[:NUM_TESTS]
 		tests_str = ' '.join(f"{t:7.2f}" for t in tests)
 		print(f"{s['name']:<25} {s['id']:<10} {tests_str} {s['average']:7.2f} {s['grade']:>6}")
 
@@ -247,8 +256,98 @@ def search_student(students: list, name: str):
 	found = [s for s in students if name in s['name'].lower()]
 	if not found:
 		print(f"No students found matching '{name}'.")
-		return
+		return False
 	display_students(found)
+	return True
+
+
+def modify_student_score(students: list):
+	if not students:
+		print('No student records available.')
+		return
+	print('Current students:')
+	display_students(students)
+	sid = input('Enter student ID to modify: ').strip()
+	if sid == '\x1b' or sid.upper() == 'ESC' or not sid:
+		print('Modification cancelled.')
+		return
+	matches = [s for s in students if s['id'].strip().lower() == sid.strip().lower()]
+	if not matches:
+		print(f"No student found with ID '{sid}'.")
+		return
+	student = matches[0]
+	print(f"Selected student: {student['name']} (ID: {student['id']})")
+	max_tests = 3
+	for i in range(1, max_tests + 1):
+		value = student.get('tests', [])
+		if i <= len(value):
+			print(f"Test {i}: {value[i-1]:.2f}")
+		else:
+			print(f"Test {i}: 0.00")
+	while True:
+		test_choice = input(f'Enter test number to modify (1-{max_tests}) or ESC to cancel: ').strip()
+		if test_choice == '\x1b' or test_choice.upper() == 'ESC' or not test_choice:
+			print('Modification cancelled.')
+			return
+		if not test_choice.isdigit():
+			print('Please enter a valid test number.')
+			continue
+		test_num = int(test_choice)
+		if test_num < 1 or test_num > max_tests:
+			print(f'Please choose a number between 1 and {max_tests}.')
+			continue
+		break
+	current_tests = student.get('tests', [])[:]
+	if len(current_tests) < test_num:
+		current_tests.extend([0.0] * (test_num - len(current_tests)))
+	new_score = input_float(f'Enter new score for Test {test_num}: ')
+	if new_score is None:
+		print('Modification cancelled.')
+		return
+	current_tests[test_num - 1] = new_score
+	student['tests'] = [round(float(x), 2) for x in current_tests]
+	for i, t in enumerate(student['tests'], start=1):
+		student[f'test{i}'] = t
+	student['average'] = calculate_average(*student['tests'])
+	student['grade'] = calculate_grade(student['average'])
+	print(f"Updated Test {test_num} to {new_score:.2f}. New average: {student['average']:.2f}, Grade: {student['grade']}")
+	confirm = input('Save changes? (Y/N): ').strip().upper()
+	if confirm == 'Y':
+		save_records(DATA_FILE, students)
+	else:
+		print('Changes not saved.')
+
+
+def delete_student_record(students: list):
+	if not students:
+		print('No student records available.')
+		return
+	print('Current students:')
+	sorted_students = sorted(students, key=lambda s: s['name'].split()[-1].lower())
+	for i, student in enumerate(sorted_students, start=1):
+		print(f"{i}. {student['name']} (ID: {student['id']})")
+	while True:
+		choice = input('Enter student number to delete or ESC to cancel: ').strip()
+		if choice == '\x1b' or choice.upper() == 'ESC' or not choice:
+			print('Delete cancelled.')
+			return
+		if not choice.isdigit():
+			print('Please enter a valid student number.')
+			continue
+		choice_num = int(choice)
+		if choice_num < 1 or choice_num > len(sorted_students):
+			print(f'Please choose a number between 1 and {len(sorted_students)}.')
+			continue
+		break
+	student = sorted_students[choice_num - 1]
+	print(f"Selected student: {student['name']} (ID: {student['id']})")
+	confirm = input('Are you sure you want to delete this student record? (Y/N): ').strip().upper()
+	if confirm != 'Y':
+		print('Delete cancelled.')
+		return
+	students.remove(student)
+	save_records(DATA_FILE, students)
+	print(f"Deleted student record for {student['name']} (ID: {student['id']}).")
 
 
 def clear_screen():
@@ -257,19 +356,19 @@ def clear_screen():
 
 def print_welcome_banner():
 	print("="*50)
-	print("  Welcome to the Student Calculator")
+	print("Welcome to the Student Calculator".center(50))
 	print("="*50)
 
 
 def print_closing_banner():
 	print("="*50)
-	print("  Have a Good Day")
+	print("Have a Good Day".center(50))
 	print("="*50)
 
 
 def print_section_heading(title: str):
 	print('=' * 50)
-	print(f"  {title}")
+	print(title.center(50))
 	print('=' * 50)
 
 
@@ -280,25 +379,26 @@ def main():
 	print(f"Loaded {len(students)} record(s) from {DATA_FILE}.")
 
 	while True:
-		print('\nStudent Records Manager')
-		print('1) Add new student')
-		print('2) Display all students')
-		print('3) Class statistics')
-		print('4) Search by name')
-		print('5) Save records')
-		print('ESC) Exit program')
+		print()
+		print_section_heading('Student Records Manager')
+		print('1) Add New Student')
+		print('2) Display All Students')
+		print('3) Modify Student Score')
+		print('4) Class Statistics')
+		print('5) Search By Name')
+		print('6) Delete Student Record')
+		print('7) Save Records')
+		print('ESC) Exit Program')
 		choice = input('Choose an option: ').strip()
 
 		if choice == '\x1b' or choice.upper() == 'ESC':
 			print_section_heading('Exit')
-			confirm_prompt = input('Are you sure you want to exit? (Y/N): ').strip().upper()
+			confirm_prompt = input('Do you want to save? (Y/N): ').strip().upper()
 			if confirm_prompt == 'Y':
 				save_records(DATA_FILE, students)
-				print_closing_banner()
-				print('='*50)
-				break
+			print_closing_banner()
 			print('='*50)
-			continue
+			break
 
 		if choice == '1':
 			print_section_heading('Add New Student')
@@ -313,28 +413,42 @@ def main():
 			continue
 
 		if choice == '3':
+			print_section_heading('Modify Student Score')
+			modify_student_score(students)
+			print('='*50)
+			continue
+
+		if choice == '4':
 			print_section_heading('Class Statistics')
 			class_stats(students)
 			print('='*50)
 			continue
 
-		if choice == '4':
+		if choice == '5':
 			print_section_heading('Search Students')
-			term = input('Enter name to search (case-insensitive): ')
-			if term == '\x1b' or term.upper() == 'ESC' or not term.strip():
-				print('Search cancelled.')
-			else:
-				search_student(students, term)
+			while True:
+				term = input('Enter name to search (case-insensitive) or ESC to exit: ')
+				if term == '\x1b' or term.upper() == 'ESC' or not term.strip():
+					print('Search cancelled.')
+					break
+				if search_student(students, term):
+					break
 			print('='*50)
 			continue
 
-		if choice == '5':
+		if choice == '6':
+			print_section_heading('Delete Student Record')
+			delete_student_record(students)
+			print('='*50)
+			continue
+
+		if choice == '7':
 			print_section_heading('Save Records')
 			save_records(DATA_FILE, students)
 			print('='*50)
 			continue
 
-		print('Invalid choice. Please select 1-5 or press ESC to exit.')
+		print('Invalid choice. Please select 1-6 or press ESC to exit.')
 		print('='*50)
 
 
